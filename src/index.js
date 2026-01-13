@@ -13,7 +13,7 @@ app.get("/health", (req, res) => {
 });
 
 app.get("/", (req, res) => {
-  res.send("CI/CD Pipeline LIVE 🚀");
+  res.send("CI/CD Pipeline LIVE 🚀 v2");
 });
 
 if (require.main === module) {
