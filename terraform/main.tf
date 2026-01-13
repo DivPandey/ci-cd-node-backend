@@ -7,6 +7,15 @@ resource "aws_instance" "ci_cd_server" {
   instance_type = "t2.micro"
   key_name      = var.key_name
 
+  user_data = <<-EOF
+              #!/bin/bash
+              apt update -y
+              apt install -y docker.io
+              systemctl start docker
+              systemctl enable docker
+              usermod -aG docker ubuntu
+              EOF
+
   vpc_security_group_ids = [aws_security_group.allow_ssh_http.id]
 
   tags = {
