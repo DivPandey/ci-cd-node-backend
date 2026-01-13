@@ -12,3 +12,10 @@ yarn-error.log*
 # OS files
 .DS_Store
 Thumbs.db
+
+terraform/.terraform/
+terraform/*.tfstate*
+*.pem
+
+# Terraform binaries
+terraform-provider-*
