@@ -13,7 +13,7 @@ app.get("/health", (req, res) => {
 });
 
 app.get("/", (req, res) => {
-  res.send("CI/CD Pipeline LIVE 🚀 v2");
+  res.send("Testing my backend Yash");
 });
 
 if (require.main === module) {
