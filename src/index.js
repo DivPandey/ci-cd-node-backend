@@ -13,7 +13,7 @@ app.get("/health", (req, res) => {
 });
 
 app.get("/", (req, res) => {
-  res.send("Testing my backend Yash");
+  res.send("Ayaan Khan checking backend");
 });
 
 if (require.main === module) {
