@@ -19,3 +19,5 @@ terraform/*.tfstate*
 
 # Terraform binaries
 terraform-provider-*
+
+setup.txt
