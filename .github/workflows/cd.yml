@@ -16,7 +16,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy to EC2
+      # ----------------------------------------------------
+      # 1. Checkout (for K8s manifests)
+      # ----------------------------------------------------
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      # ----------------------------------------------------
+      # 2. Deploy to Kubernetes
+      # ----------------------------------------------------
+      - name: Deploy to Kubernetes Cluster
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -24,8 +33,115 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
           script: |
+            # Start Minikube if not running
+            /home/ubuntu/start-minikube.sh || minikube start --driver=docker --force
+            
+            # Wait for Minikube to be ready
+            sleep 10
+            
+            # Pull latest image
             docker pull ${{ secrets.DOCKERHUB_USERNAME }}/ci-cd-node-backend:latest
-            docker stop node-app || true
-            docker rm node-app || true
-            docker run -d -p 3000:3000 --name node-app ${{ secrets.DOCKERHUB_USERNAME }}/ci-cd-node-backend:latest
-            echo "✅ Deployment completed!"
+            
+            # Load image into Minikube
+            minikube image load ${{ secrets.DOCKERHUB_USERNAME }}/ci-cd-node-backend:latest
+            
+            # Apply K8s manifests (create deployment.yaml and service.yaml if not exist)
+            cat << 'DEPLOYMENT_EOF' > /tmp/deployment.yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: node-backend
+              labels:
+                app: node-backend
+            spec:
+              replicas: 2
+              selector:
+                matchLabels:
+                  app: node-backend
+              template:
+                metadata:
+                  labels:
+                    app: node-backend
+                spec:
+                  containers:
+                  - name: node-backend
+                    image: ${{ secrets.DOCKERHUB_USERNAME }}/ci-cd-node-backend:latest
+                    imagePullPolicy: Never
+                    ports:
+                    - containerPort: 3000
+            DEPLOYMENT_EOF
+            
+            cat << 'SERVICE_EOF' > /tmp/service.yaml
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: node-backend-service
+            spec:
+              type: NodePort
+              selector:
+                app: node-backend
+              ports:
+              - protocol: TCP
+                port: 3000
+                targetPort: 3000
+                nodePort: 30000
+            SERVICE_EOF
+            
+            # Apply manifests
+            kubectl apply -f /tmp/deployment.yaml
+            kubectl apply -f /tmp/service.yaml
+            
+            # Wait for rollout
+            kubectl rollout status deployment/node-backend --timeout=60s
+            
+            # Verify pods are running
+            kubectl get pods -l app=node-backend
+            
+            echo "✅ Kubernetes deployment completed!"
+
+      # ----------------------------------------------------
+      # 3. Dummy DAST - Dynamic Application Security Testing
+      # ----------------------------------------------------
+      - name: Dummy DAST - Security Scan
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script: |
+            echo "🔍 Starting DAST (Dynamic Application Security Testing)..."
+            
+            # Get Minikube IP
+            MINIKUBE_IP=$(minikube ip)
+            APP_URL="http://${MINIKUBE_IP}:30000"
+            
+            echo "Testing application at: ${APP_URL}"
+            
+            # Wait for service to be ready
+            sleep 5
+            
+            # Test 1: Health endpoint accessibility
+            echo "Test 1: Health Check"
+            curl -sf "${APP_URL}/health" && echo "✅ Health endpoint accessible" || echo "⚠️ Health endpoint check"
+            
+            # Test 2: Security Headers Check
+            echo "Test 2: Security Headers"
+            HEADERS=$(curl -sI "${APP_URL}/health" 2>/dev/null)
+            
+            echo "$HEADERS" | grep -qi "x-content-type-options" && echo "✅ X-Content-Type-Options present" || echo "⚠️ Missing X-Content-Type-Options"
+            echo "$HEADERS" | grep -qi "x-frame-options" && echo "✅ X-Frame-Options present" || echo "⚠️ Missing X-Frame-Options"
+            echo "$HEADERS" | grep -qi "x-xss-protection" && echo "✅ X-XSS-Protection present" || echo "⚠️ Missing X-XSS-Protection"
+            
+            # Test 3: Response validation
+            echo "Test 3: Response Validation"
+            RESPONSE=$(curl -s "${APP_URL}/health")
+            echo "Response: ${RESPONSE}"
+            
+            # Test 4: HTTP Methods Check (basic)
+            echo "Test 4: HTTP Methods"
+            curl -sX OPTIONS "${APP_URL}/health" -I 2>/dev/null | head -n 1
+            
+            echo ""
+            echo "✅ DAST Security Scan completed!"
+            echo "Note: This is a basic DAST scan. For production, use OWASP ZAP or similar tools."
